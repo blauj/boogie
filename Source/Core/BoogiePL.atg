@@ -806,6 +806,8 @@ WhileCmd<out WhileCmd/*!*/ wcmd>
      List<PredicateCmd/*!*/> invariants = new List<PredicateCmd/*!*/>();
      StmtList/*!*/ body;
      QKeyValue kv = null;
+     List<Requires>/*!*/ pre = new List<Requires>();
+	 List<Ensures>/*!*/ post = new List<Ensures>();
   .)
   "while"             (. x = t; .)
   Guard<out guard>    (. Contract.Assume(guard == null || cce.Owner.None(guard)); .)
@@ -822,9 +824,10 @@ WhileCmd<out WhileCmd/*!*/ wcmd>
 						 kv = null;
                       .)
     ";"
+    | SpecPrePost<false,  pre, post>
   }
   "{"
-  StmtList<out body>  (. wcmd = new WhileCmd(x, guard, invariants, body); .)
+  StmtList<out body>  (. wcmd = new WhileCmd(x, guard, invariants, body, pre, post); .)
   .
 
 Guard<out Expr e>
@@ -1297,6 +1300,11 @@ AtomExpression<out Expr/*!*/ e>
     "("
     Expression<out e>
     ")"                     (. e = new OldExpr(x, e); .)
+
+  | "before"                (. x = t; .)
+    "("
+    Expression<out e>
+    ")"                     (. e = new BeforeExpr(x, e); .)
 
   | "int"                   (. x = t; .)
     "("

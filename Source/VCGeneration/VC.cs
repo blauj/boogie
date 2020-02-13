@@ -1,4 +1,4 @@
-//-----------------------------------------------------------------------------
+﻿//-----------------------------------------------------------------------------
 //
 // Copyright (C) Microsoft Corporation.  All Rights Reserved.
 //
@@ -2463,21 +2463,47 @@ namespace VC {
           if (!havocExprs.Contains(ie))
             havocExprs.Add(ie);
         }
-        // pass the token of the enclosing loop header to the HavocCmd so we can reconstruct
-        // the source location for this later on
-        HavocCmd hc = new HavocCmd(header.tok, havocExprs);
-        List<Cmd> newCmds = new List<Cmd>();
-        newCmds.Add(hc);
-        foreach (Cmd c in header.Cmds)
+
+        #region If this was a loop specified by contract, insert havocs at different locations
+        if (header.needsAdditionalHavoc)
         {
-          newCmds.Add(c);
+          // havoc in loop step after body execution
+          foreach (Block backEdgeNode in backEdgeNodes.Keys)
+            ReplaceHavocPlaceholder(havocExprs, backEdgeNode);
+          
+          // havoc in header
+          ReplaceHavocPlaceholder(havocExprs, header);
         }
-        header.Cmds = newCmds;
+        #endregion
+        else
+        {
+          // pass the token of the enclosing loop header to the HavocCmd so we can reconstruct
+          // the source location for this later on
+          HavocCmd hc = new HavocCmd(header.tok, havocExprs);
+          List<Cmd> newCmds = new List<Cmd>();
+          newCmds.Add(hc);
+          foreach (Cmd c in header.Cmds)
+          {
+            newCmds.Add(c);
+          }
+          header.Cmds = newCmds;
+        }
+
         #endregion
       }
       #endregion
       #endregion Convert program CFG into a DAG
     }
+    private static void ReplaceHavocPlaceholder(List<IdentifierExpr> havocExprs, Block backEdgeNode) 
+    {
+      foreach (Cmd c in backEdgeNode.Cmds)
+      {
+        LoopHavocCmd lhc = c as LoopHavocCmd;
+        if (lhc != null)
+          lhc.SetVariables(havocExprs);
+      }
+    }
+
 
     public static List<Variable> VarsAssignedInLoop(Graph<Block> g, Block header)
     {

@@ -304,7 +304,7 @@ namespace Microsoft.Boogie.AbstractInterpretation
       } else if (cmd is SugaredCmd) {
         var c = (SugaredCmd)cmd;
         elmt = Step(lattice, c.Desugaring, elmt);
-      } else if (cmd is CommentCmd) {
+      } else if (cmd is CommentCmd || cmd is BeforeAtCmd) {
         // skip
       } else {
         Contract.Assert(false);  // unknown command

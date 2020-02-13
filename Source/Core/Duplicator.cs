@@ -1,4 +1,4 @@
-//-----------------------------------------------------------------------------
+﻿//-----------------------------------------------------------------------------
 //
 // Copyright (C) Microsoft Corporation.  All Rights Reserved.
 //
@@ -327,6 +327,11 @@ namespace Microsoft.Boogie {
       Contract.Ensures(Contract.Result<Expr>() != null);
       return base.VisitOldExpr((OldExpr)node.Clone());
     }
+    public override Expr VisitBeforeExpr(BeforeExpr node) {
+      //Contract.Requires(node != null);
+      Contract.Ensures(Contract.Result<Expr>() != null);
+      return base.VisitBeforeExpr((BeforeExpr)node.Clone());
+    }
     public override Cmd VisitParCallCmd(ParCallCmd node) {
       //Contract.Requires(node != null);
       Contract.Ensures(Contract.Result<Cmd>() != null);
@@ -578,6 +583,13 @@ namespace Microsoft.Boogie {
       return (Expr)new ReplacingOldSubstituter(always, forOld).Visit(expr);
     }
 
+    public static Expr ApplyReplacingBeforeExprs(Substitution forBefore, Expr expr) {
+      Contract.Requires(forBefore != null);
+      Contract.Requires(expr != null);
+      Contract.Ensures(Contract.Result<Expr>() != null);
+      return (Expr)new ReplacingBeforeSubstituter(forBefore).Visit(expr);
+    }
+
     public static Expr FunctionCallReresolvingApplyReplacingOldExprs(Substitution always, Substitution forOld, Expr expr, Program program)
     {
       Contract.Requires(always != null);
@@ -825,6 +837,41 @@ namespace Microsoft.Boogie {
         insideOldExpr = true;
         Expr/*!*/ e = (Expr/*!*/)cce.NonNull(this.Visit(node.Expr));
         insideOldExpr = previouslyInOld;
+        return e;
+      }
+    }
+    public class ReplacingBeforeSubstituter : Duplicator {
+      protected readonly Substitution/*!*/ forBefore;
+      [ContractInvariantMethod]
+      void ObjectInvariant() {
+        Contract.Invariant(forBefore != null);
+      }
+
+      public ReplacingBeforeSubstituter(Substitution forBefore)
+        : base() {
+        Contract.Requires(forBefore != null);
+        this.forBefore = forBefore;
+      }
+
+      private bool insideBeforeExpr = false;
+
+      public override Expr VisitIdentifierExpr(IdentifierExpr node) {
+        Contract.Ensures(Contract.Result<Expr>() != null);
+        Expr/*?*/ e = null;
+
+        if (forBefore != null && insideBeforeExpr) {
+          e = forBefore(cce.NonNull(node.Decl));
+        }
+
+        return e == null ? base.VisitIdentifierExpr(node) : e;
+      }
+
+      public override Expr VisitBeforeExpr(BeforeExpr node) {
+        Contract.Ensures(Contract.Result<Expr>() != null);
+        bool previouslyInBefore = insideBeforeExpr;
+        insideBeforeExpr = true;
+        Expr/*!*/ e = (Expr/*!*/)cce.NonNull(this.Visit(node.Expr));
+        insideBeforeExpr = previouslyInBefore;
         return e;
       }
     }

@@ -334,7 +334,7 @@ namespace Microsoft.Boogie {
           stream.Write("\"");
           stream.Write((string)p);
           stream.Write("\"");
-        } else {
+        } else if (p is Expr) {
           ((Expr)p).Emit(stream);
         }
       }

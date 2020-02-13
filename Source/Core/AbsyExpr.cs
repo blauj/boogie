@@ -1160,6 +1160,92 @@ namespace Microsoft.Boogie {
       return visitor.VisitOldExpr(this);
     }
   }
+  public class BeforeExpr : Expr {
+    public string ReferencedLabel { get; set; }
+
+    private Expr _Expr;
+    public Expr/*!*/ Expr {
+      get {
+        return _Expr;
+      }
+      set {
+        if (Immutable)
+          throw new InvalidOperationException("Cannot change Expr of an Immutable BeforeExpr");
+
+        _Expr = value;
+      }
+    }
+    [ContractInvariantMethod]
+    void ObjectInvariant() {
+      Contract.Invariant(Expr != null);
+    }
+
+    public BeforeExpr(IToken/*!*/ tok, Expr/*!*/ expr, bool immutable = false)
+      : base(tok, immutable) {
+      Contract.Requires(tok != null);
+      Contract.Requires(expr != null);
+      _Expr = expr;
+      if (immutable)
+        CachedHashCode = ComputeHashCode();
+    }
+    [Pure]
+    [Reads(ReadsAttribute.Reads.Nothing)]
+    public override bool Equals(object obj) {
+      if (obj == null)
+        return false;
+      if (!(obj is BeforeExpr))
+        return false;
+
+      BeforeExpr other = (BeforeExpr)obj;
+      return object.Equals(this.Expr, other.Expr);
+    }
+    [Pure]
+    public override int GetHashCode() {
+      if (Immutable)
+        return this.CachedHashCode;
+      else
+        return ComputeHashCode();
+    }
+    public override int ComputeHashCode() {
+      return this.Expr == null ? 0 : this.Expr.GetHashCode();
+    }
+
+    public override void Emit(TokenTextWriter stream, int contextBindingStrength, bool fragileContext) {
+      Contract.Requires(stream != null);
+      stream.Write(this, "before(");
+      this.Expr.Emit(stream);
+      stream.Write(")");
+    }
+    public override void Resolve(ResolutionContext rc) {
+      Contract.Requires(rc != null);
+      if (rc.StateMode != ResolutionContext.State.Two) {
+        rc.Error(this, "before expressions allowed only in two-state contexts");
+      }
+      Expr.Resolve(rc);
+    }
+    public override void ComputeFreeVariables(Set /*Variable*/ freeVars) {
+      Contract.Requires(freeVars != null);
+      Expr.ComputeFreeVariables(freeVars);
+    }
+    public override void Typecheck(TypecheckingContext tc) {
+      Contract.Requires(tc != null);
+      Expr.Typecheck(tc);
+      Type = Expr.Type;
+    }
+    public override Type/*!*/ ShallowType {
+      get {
+        Contract.Ensures(Contract.Result<Type>() != null);
+        return Expr.ShallowType;
+      }
+    }
+
+    public override Absy StdDispatch(StandardVisitor visitor) {
+      //Contract.Requires(visitor != null);
+      Contract.Ensures(Contract.Result<Absy>() != null);
+      return visitor.VisitBeforeExpr(this);
+    }
+  }
+
   [ContractClass(typeof(IAppliableVisitorContracts<>))]
   public interface IAppliableVisitor<T> {
     T Visit(UnaryOperator/*!*/ unaryOperator);

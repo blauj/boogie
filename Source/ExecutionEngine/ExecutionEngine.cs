@@ -218,7 +218,8 @@ namespace Microsoft.Boogie
     Precondition,
     Postcondition,
     InvariantEntry,
-    InvariantMaintainance
+    InvariantMaintainance,
+    LoopContract,
   }
 
 
@@ -1807,9 +1808,30 @@ namespace Microsoft.Boogie
           if ((assertError.FailingAssert.ErrorData as string) != null) {
             errorInfo.AddAuxInfo(assertError.FailingAssert.tok, assertError.FailingAssert.ErrorData as string, "Related message");
           }
-        }
-        else
-        {
+        } else if (assertError.FailingAssert is LoopContractAssertCmd) {
+          var lcError = assertError.FailingAssert as LoopContractAssertCmd;
+          var msg = string.Empty;
+          switch (lcError.Case) {
+            case LoopContractAssertCmd.LoopCase.Old:
+              msg = "This loop precondition might not hold on entry.";
+              break;
+            case LoopContractAssertCmd.LoopCase.Base:
+              msg = "This loop postcondition might not hold if the loop is never executed.";
+              break;
+            case LoopContractAssertCmd.LoopCase.Step_Before:
+              msg = "This loop precondition might not be maintained by the loop.";
+              break;
+            case LoopContractAssertCmd.LoopCase.Step_After:
+              msg = "This loop postcondition might not hold on exit.";
+              break;
+          }
+          errorInfo = errorInformationFactory.CreateErrorInformation(assertError.FailingAssert.tok, msg, assertError.RequestId, assertError.OriginalRequestId, cause);
+          errorInfo.BoogieErrorCode = "BP5006";
+          errorInfo.Kind = ErrorKind.LoopContract;
+          if ((assertError.FailingAssert.ErrorData as string) != null) {
+            errorInfo.AddAuxInfo(assertError.FailingAssert.tok, assertError.FailingAssert.ErrorData as string, "Related message");
+          }
+        } else {
           var msg = assertError.FailingAssert.ErrorData as string;
           var tok = assertError.FailingAssert.tok;
           if (!CommandLineOptions.Clo.ForceBplErrors && assertError.FailingAssert.ErrorMessage != null)
@@ -1857,6 +1879,10 @@ namespace Microsoft.Boogie
 
         case ErrorKind.InvariantMaintainance:
           msg = "loop invariant maintenance violation";
+          break;
+
+        case ErrorKind.LoopContract:
+          msg = "loop contract violation";
           break;
       }
 

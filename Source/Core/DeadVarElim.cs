@@ -1569,9 +1569,10 @@ b.liveVarsBefore = procICFG[mainImpl.Name].liveVarsAfter[b];
           gen.UnionWith(collector.usedVars);
         }
         ret = new GenKillWeight(gen, kill);
-      } else if (cmd is CommentCmd) {
+      } else if (cmd is CommentCmd || cmd is BeforeAtCmd) {
         ret = new GenKillWeight(gen, kill);
         // comments are just for debugging and don't affect verification
+        // BeforeAtCmds are replaced before verification
       } else if (cmd is SugaredCmd) {
         SugaredCmd/*!*/ sugCmd = (SugaredCmd)cmd;
         Contract.Assert(sugCmd != null);

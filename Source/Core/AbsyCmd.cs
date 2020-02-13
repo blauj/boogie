@@ -581,58 +581,199 @@ namespace Microsoft.Boogie {
 
         } else if (b.ec is WhileCmd) {
           WhileCmd wcmd = (WhileCmd)b.ec;
-          var a = FreshAnon();
-          string loopHeadLabel = prefix + a + "_LoopHead";
-          string/*!*/ loopBodyLabel = prefix + a + "_LoopBody";
-          string loopDoneLabel = prefix + a + "_LoopDone";
+          if (wcmd.Ensures.Count < 1 && wcmd.Requires.Count < 1) {
+            var a = FreshAnon();
+            string loopHeadLabel = prefix + a + "_LoopHead";
+            string/*!*/ loopBodyLabel = prefix + a + "_LoopBody";
+            string loopDoneLabel = prefix + a + "_LoopDone";
 
-          List<Cmd> ssBody = new List<Cmd>();
-          List<Cmd> ssDone = new List<Cmd>();
-          if (wcmd.Guard != null) {
-            var ac = new AssumeCmd(wcmd.tok, wcmd.Guard);
-            ac.Attributes = new QKeyValue(wcmd.tok, "partition", new List<object>(), null);
-            ssBody.Add(ac);
+            List<Cmd> ssBody = new List<Cmd>();
+            List<Cmd> ssDone = new List<Cmd>();
+            if (wcmd.Guard != null) {
+              var ac = new AssumeCmd(wcmd.tok, wcmd.Guard);
+              ac.Attributes = new QKeyValue(wcmd.tok, "partition", new List<object>(), null);
+              ssBody.Add(ac);
 
-            ac = new AssumeCmd(wcmd.tok, Expr.Not(wcmd.Guard));
-            ac.Attributes = new QKeyValue(wcmd.tok, "partition", new List<object>(), null);
-            ssDone.Add(ac);
-          }
+              ac = new AssumeCmd(wcmd.tok, Expr.Not(wcmd.Guard));
+              ac.Attributes = new QKeyValue(wcmd.tok, "partition", new List<object>(), null);
+              ssDone.Add(ac);
+            }
 
-          // Try to squeeze in ssBody into the first block of wcmd.Body
-          bool bodyGuardTakenCareOf = wcmd.Body.PrefixFirstBlock(ssBody, ref loopBodyLabel);
+            // Try to squeeze in ssBody into the first block of wcmd.Body
+            bool bodyGuardTakenCareOf = wcmd.Body.PrefixFirstBlock(ssBody, ref loopBodyLabel);
 
-          // ... goto LoopHead;
-          Block block = new Block(b.tok, b.LabelName, theSimpleCmds, new GotoCmd(wcmd.tok, new List<String> { loopHeadLabel }));
-          blocks.Add(block);
-
-          // LoopHead: assert/assume loop_invariant; goto LoopDone, LoopBody;
-          List<Cmd> ssHead = new List<Cmd>();
-          foreach (PredicateCmd inv in wcmd.Invariants) {
-            ssHead.Add(inv);
-          }
-          block = new Block(wcmd.tok, loopHeadLabel, ssHead, new GotoCmd(wcmd.tok, new List<String> { loopDoneLabel, loopBodyLabel }));
-          blocks.Add(block);
-
-          if (!bodyGuardTakenCareOf) {
-            // LoopBody: assume guard; goto firstLoopBlock;
-            block = new Block(wcmd.tok, loopBodyLabel, ssBody, new GotoCmd(wcmd.tok, new List<String> { wcmd.Body.BigBlocks[0].LabelName }));
+            // ... goto LoopHead;
+            Block block = new Block(b.tok, b.LabelName, theSimpleCmds, new GotoCmd(wcmd.tok, new List<String> { loopHeadLabel }));
             blocks.Add(block);
-          }
 
-          // recurse to create the blocks for the loop body
-          CreateBlocks(wcmd.Body, loopHeadLabel);
+            // LoopHead: assert/assume loop_invariant; goto LoopDone, LoopBody;
+            List<Cmd> ssHead = new List<Cmd>();
+            foreach (PredicateCmd inv in wcmd.Invariants) {
+              ssHead.Add(inv);
+            }
+            block = new Block(wcmd.tok, loopHeadLabel, ssHead, new GotoCmd(wcmd.tok, new List<String> { loopDoneLabel, loopBodyLabel }));
+            blocks.Add(block);
 
-          // LoopDone: assume !guard; goto loopSuccessor;
-          TransferCmd trCmd;
-          if (n == 0 && runOffTheEndLabel != null) {
-            // goto the given label instead of the textual successor block
-            trCmd = new GotoCmd(wcmd.tok, new List<String> { runOffTheEndLabel });
+            if (!bodyGuardTakenCareOf) {
+              // LoopBody: assume guard; goto firstLoopBlock;
+              block = new Block(wcmd.tok, loopBodyLabel, ssBody, new GotoCmd(wcmd.tok, new List<String> { wcmd.Body.BigBlocks[0].LabelName }));
+              blocks.Add(block);
+            }
+
+            // recurse to create the blocks for the loop body
+            CreateBlocks(wcmd.Body, loopHeadLabel);
+
+            // LoopDone: assume !guard; goto loopSuccessor;
+            TransferCmd trCmd;
+            if (n == 0 && runOffTheEndLabel != null) {
+              // goto the given label instead of the textual successor block
+              trCmd = new GotoCmd(wcmd.tok, new List<String> { runOffTheEndLabel });
+            } else {
+              trCmd = GotoSuccessor(wcmd.tok, b);
+            }
+            block = new Block(wcmd.tok, loopDoneLabel, ssDone, trCmd);
+            blocks.Add(block);
           } else {
-            trCmd = GotoSuccessor(wcmd.tok, b);
-          }
-          block = new Block(wcmd.tok, loopDoneLabel, ssDone, trCmd);
-          blocks.Add(block);
+            var a = FreshAnon();
+            string loopOldLabel = prefix + a + "_LoopOld";
+            string loopUseLabel = prefix + a + "_LoopUse";
+            string loopBaseLabel = prefix + a + "_LoopBase";
+            string loopStep1Label = prefix + a + "_LoopStep_1_BeforeBody";
+            string loopStep2Label = prefix + a + "_LoopStep_2_AfterBody";
 
+            // ... goto Old;
+            Block gotoBlock = new Block(b.tok, b.LabelName, theSimpleCmds, new GotoCmd(wcmd.tok, new List<String> { loopOldLabel }));
+            blocks.Add(gotoBlock);
+
+            //
+            //Old:
+            //
+            List<Cmd> oldCmds = new List<Cmd>();
+
+            oldCmds.Add(new BeforeAtCmd(wcmd.tok, loopOldLabel));
+            //assume all free invariants
+            oldCmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
+            //assert all preconditions
+            oldCmds.AddRange(AssertPre(wcmd.Requires, loopOldLabel, LoopContractAssertCmd.LoopCase.Old));
+            //assert all invariants
+            oldCmds.AddRange(AssertInv(wcmd.Invariants, loopOldLabel, LoopContractAssertCmd.LoopCase.Old));
+
+            //TEMP HAVOC
+            oldCmds.Add(new LoopHavocCmd(Token.NoToken));
+
+            Block oldBlock = new Block(wcmd.tok, loopOldLabel, oldCmds, new GotoCmd(wcmd.tok, new List<String> { loopUseLabel, loopBaseLabel, loopStep1Label }));
+            oldBlock.needsAdditionalHavoc = true;
+            blocks.Add(oldBlock);
+
+            //
+            //Use:
+            //
+            List<Cmd> useCmds = new List<Cmd>();
+
+            //assume all postconditions
+            useCmds.AddRange(AssumePost(wcmd.Ensures, loopOldLabel));
+
+            //assume !guard
+            AssumeCmd notGuard = new AssumeCmd(wcmd.Guard.tok, Expr.Not(wcmd.Guard));
+            notGuard.Attributes = new QKeyValue(wcmd.Guard.tok, "partition", new List<object>(), null);
+            useCmds.Add(notGuard);
+
+            //return/block after loop
+            TransferCmd trCmd;
+            if (n == 0 && runOffTheEndLabel != null) {
+              // goto the given label instead of the textual successor block
+              trCmd = new GotoCmd(wcmd.tok, new List<String> { runOffTheEndLabel });
+            } else {
+              trCmd = GotoSuccessor(wcmd.tok, b);
+            }
+            Block useBlock = new Block(wcmd.tok, loopUseLabel, useCmds, trCmd);
+            blocks.Add(useBlock);
+
+            //
+            //Base
+            //
+            List<Cmd> baseCmds = new List<Cmd>();
+
+            //assume all free invariants
+            baseCmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
+            //assume all preconditions
+            baseCmds.AddRange(AssumePre(wcmd.Requires, loopOldLabel));
+            //assume all invs
+            baseCmds.AddRange(AssumeInv(wcmd.Invariants, loopOldLabel));
+
+            //assume !guard
+            baseCmds.Add(notGuard);
+
+            //post[old(w)\f]
+            //before(x) -> x
+            baseCmds.AddRange(AssertPost(wcmd.Ensures, BeforeAtCmd.THIS_LABEL, LoopContractAssertCmd.LoopCase.Base));
+
+            //assume false
+            baseCmds.Add(new AssumeCmd(Token.NoToken, Expr.False));
+
+            //return
+            Block baseBlock = new Block(wcmd.tok, loopBaseLabel, baseCmds, new ReturnCmd(Token.NoToken));
+            blocks.Add(baseBlock);
+
+
+            //
+            //Step1
+            //
+            List<Cmd> step1Cmds = new List<Cmd>();
+
+            //incarnations
+            step1Cmds.Add(new BeforeAtCmd(wcmd.tok, loopStep1Label));
+
+            //assume all free invariants
+            step1Cmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
+            //assume all preconditions
+            step1Cmds.AddRange(AssumePre(wcmd.Requires, loopOldLabel));
+            //assume all invs
+            step1Cmds.AddRange(AssumeInv(wcmd.Invariants, loopOldLabel));
+
+            //assume guard
+            AssumeCmd guard = new AssumeCmd(wcmd.Guard.tok, wcmd.Guard);
+            guard.Attributes = new QKeyValue(wcmd.Guard.tok, "partition", new List<object>(), null);
+            step1Cmds.Add(guard);
+
+            //Step1 end
+            Block step1Block = new Block(wcmd.tok, loopStep1Label, step1Cmds, new GotoCmd(wcmd.tok, new List<String> { wcmd.Body.BigBlocks[0].LabelName }));
+            blocks.Add(step1Block);
+            //p1
+            CreateBlocks(wcmd.Body, loopStep2Label);
+
+            //
+            //Step2
+            //
+            List<Cmd> step2Cmds = new List<Cmd>();
+
+            //Force incarnations
+            step2Cmds.Add(new BeforeAtCmd(wcmd.tok, loopStep2Label));
+
+            //assume all free invariants
+            step2Cmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
+            //assert all preconditions
+            step2Cmds.AddRange(AssertPre(wcmd.Requires, loopOldLabel, LoopContractAssertCmd.LoopCase.Step_Before));
+            //assert all invariants
+            step2Cmds.AddRange(AssertInv(wcmd.Invariants, loopOldLabel, LoopContractAssertCmd.LoopCase.Step_Before));
+
+            step2Cmds.Add(new LoopHavocCmd(wcmd.tok));
+
+            //assume !guard
+            step2Cmds.Add(new AssumeCmd(wcmd.Guard.tok, Expr.Not(wcmd.Guard)));
+
+            //assume post(x_n/ before(x))
+            step2Cmds.AddRange(AssumePost(wcmd.Ensures, loopStep2Label));
+
+            //assert post(x_0, x)
+            step2Cmds.AddRange(AssertPost(wcmd.Ensures, loopStep1Label, LoopContractAssertCmd.LoopCase.Step_After));
+
+            //return
+            //Block step2Block = new Block(wcmd.tok, loopStep2Label, step2Cmds, new ReturnCmd(Token.NoToken), beforeReferencedBlock);
+            Block step2HavocBlock = new Block(wcmd.tok, loopStep2Label, step2Cmds, new GotoCmd(wcmd.tok, new List<string>() { loopOldLabel }));
+            blocks.Add(step2HavocBlock);
+
+          }
         } else {
           IfCmd ifcmd = (IfCmd)b.ec;
           string predLabel = b.LabelName;
@@ -726,6 +867,59 @@ namespace Microsoft.Boogie {
       } else {
         return new ReturnCmd(tok);
       }
+    }
+
+    IEnumerable<Cmd> AssumePre(List<Requires> req, String beforeAt) {
+      foreach (Requires r in req) {
+        AssumeCmd cmd = new AssumeCmd(r.tok, r.Condition);
+        BeforeAt(cmd, beforeAt);
+        yield return cmd;
+      }
+    }
+    IEnumerable<Cmd> AssumeFreeInv(List<PredicateCmd> invs, String beforeAt) {
+      foreach (PredicateCmd i in invs.Where(i => i is AssumeCmd)) {
+        AssumeCmd cmd = new AssumeCmd(i.tok, i.Expr);
+        BeforeAt(cmd, beforeAt);
+        yield return cmd;
+      }
+    }
+    IEnumerable<Cmd> AssumeInv(List<PredicateCmd> invs, String beforeAt) {
+      foreach (PredicateCmd i in invs.Where(i => !(i is AssumeCmd))) {
+        AssumeCmd cmd = new AssumeCmd(i.tok, i.Expr);
+        BeforeAt(cmd, beforeAt);
+        yield return cmd;
+      }
+    }
+    IEnumerable<Cmd> AssertPre(List<Requires> req, String beforeAt, LoopContractAssertCmd.LoopCase loopCase) {
+      foreach (Requires r in req) {
+        AssertCmd cmd = new LoopContractAssertCmd(r.tok, r.Condition, loopCase, LoopContractAssertCmd.LoopCondition.Precondition);
+        BeforeAt(cmd, beforeAt);
+        yield return cmd;
+      }
+    }
+    IEnumerable<Cmd> AssertInv(List<PredicateCmd> invs, String beforeAt, LoopContractAssertCmd.LoopCase loopCase) {
+      foreach (PredicateCmd i in invs.Where(i => !(i is AssumeCmd))) {
+        AssertCmd cmd = new LoopContractAssertCmd(i.tok, i.Expr, loopCase, LoopContractAssertCmd.LoopCondition.Invariant);
+        BeforeAt(cmd, beforeAt);
+        yield return cmd;
+      }
+    }
+    IEnumerable<Cmd> AssertPost(List<Ensures> ens, String beforeAt, LoopContractAssertCmd.LoopCase loopCase) {
+      foreach (Ensures e in ens) {
+        AssertCmd cmd = new LoopContractAssertCmd(e.tok, e.Condition, loopCase, LoopContractAssertCmd.LoopCondition.Postcondition);
+        BeforeAt(cmd, beforeAt);
+        yield return cmd;
+      }
+    }
+    IEnumerable<Cmd> AssumePost(List<Ensures> ens, String beforeAt) {
+      foreach (Ensures e in ens) {
+        AssumeCmd cmd = new AssumeCmd(e.tok, e.Condition);
+        BeforeAt(cmd, beforeAt);
+        yield return cmd;
+      }
+    }
+    void BeforeAt(PredicateCmd cmd, String beforeAt) {
+      cmd.Attributes = new QKeyValue(cmd.tok, "before@", new List<object>() { beforeAt }, null);
     }
   }
 
@@ -871,6 +1065,8 @@ namespace Microsoft.Boogie {
     public Expr Guard;
     public List<PredicateCmd/*!*/>/*!*/ Invariants;
     public StmtList/*!*/ Body;
+    public List<Requires>/*!*/ Requires;
+    public List<Ensures>/*!*/ Ensures;
     [ContractInvariantMethod]
     void ObjectInvariant() {
       Contract.Invariant(Body != null);
@@ -878,7 +1074,7 @@ namespace Microsoft.Boogie {
     }
 
 
-    public WhileCmd(IToken tok, [Captured] Expr guard, List<PredicateCmd/*!*/>/*!*/ invariants, StmtList/*!*/ body)
+    public WhileCmd(IToken tok, [Captured] Expr guard, List<PredicateCmd/*!*/>/*!*/ invariants, StmtList/*!*/ body, List<Requires>/*!*/ requires, List<Ensures>/*!*/ ensures)
       : base(tok) {
       Contract.Requires(cce.NonNullElements(invariants));
       Contract.Requires(body != null);
@@ -886,6 +1082,8 @@ namespace Microsoft.Boogie {
       this.Guard = guard;
       this.Invariants = invariants;
       this.Body = body;
+      this.Requires = requires;
+      this.Ensures = ensures;
     }
 
     public override void Emit(TokenTextWriter stream, int level) {
@@ -897,6 +1095,9 @@ namespace Microsoft.Boogie {
       }
       stream.WriteLine(")");
 
+      foreach (Requires req in Requires) {
+        req.Emit(stream, level + 1);
+      }
       foreach (PredicateCmd inv in Invariants) {
         if (inv is AssumeCmd) {
           stream.Write(level + 1, "free invariant ");
@@ -906,6 +1107,9 @@ namespace Microsoft.Boogie {
         Cmd.EmitAttributes(stream, inv.Attributes);
         inv.Expr.Emit(stream);
         stream.WriteLine(";");
+      }
+      foreach (Ensures ens in Ensures) {
+        ens.Emit(stream, level + 1);
       }
 
       stream.WriteLine(level, "{");
@@ -993,6 +1197,7 @@ namespace Microsoft.Boogie {
 
     // VC generation and SCC computation
     public List<Block>/*!*/ Predecessors;
+    public bool needsAdditionalHavoc;
 
     // This field is used during passification to null-out entries in block2Incartion hashtable early
     public int succCount;
@@ -3195,6 +3400,32 @@ namespace Microsoft.Boogie {
     }
   }
 
+  // An AssertCmd that is a loop contract check.
+  public class LoopContractAssertCmd : AssertCmd {
+    public LoopCase Case;
+    public LoopCondition Condition;
+    public enum LoopCase {
+      Old,
+      Base,
+      Step_Before,
+      Step_After
+    };
+    public enum LoopCondition {
+      Precondition,
+      Postcondition,
+      Invariant
+    }
+
+    public LoopContractAssertCmd(IToken/*!*/ tok, Expr/*!*/ expr, LoopCase loopCase, LoopCondition loopCondition)
+      : base(tok, expr) {
+      Contract.Requires(tok != null);
+      Contract.Requires(expr != null);
+      Case = loopCase;
+      Condition = loopCondition;
+    }
+  }
+
+
   // An AssertCmd that is a loop invariant check before the loop iteration starts
   public class LoopInitAssertCmd : AssertCmd {
     public LoopInitAssertCmd(IToken/*!*/ tok, Expr/*!*/ expr)
@@ -3345,7 +3576,7 @@ namespace Microsoft.Boogie {
   }
 
   public class HavocCmd : Cmd {
-    private List<IdentifierExpr>/*!*/ _vars;
+    protected List<IdentifierExpr>/*!*/ _vars;
 
     public List<IdentifierExpr>/*!*/ Vars {
       get {
@@ -3405,6 +3636,59 @@ namespace Microsoft.Boogie {
       return visitor.VisitHavocCmd(this);
     }
   }
+
+  /// <summary>
+  /// A temporary command created to be replaced by the DAG conversion to a havoc cmd containing all assigned loop variables.
+  /// </summary>
+  public class LoopHavocCmd : HavocCmd {
+    public LoopHavocCmd(IToken/*!*/ tok)
+      : base(tok, new List<IdentifierExpr>()) {
+      Contract.Requires(tok != null);
+    }
+
+    public override void Emit(TokenTextWriter stream, int level) {
+      if (_vars.Count == 0)
+        stream.WriteLine(this, level, "havoc <loopassignments>;");
+      else
+        base.Emit(stream, level);
+    }
+
+    public void SetVariables(List<IdentifierExpr> vars) {
+      Contract.Requires(vars != null);
+      _vars = vars;
+    }
+  }
+
+  /// <summary>
+  /// A reference point for the BeforeExpr().
+  /// </summary>
+  public class BeforeAtCmd : Cmd {
+
+    public const string THIS_LABEL = "this";
+    public string Label { get; set; }
+
+    public BeforeAtCmd(IToken tok, string label) : base(tok) {
+      Label = label;
+    }
+
+    public override void AddAssignedVariables(List<Variable> vars) {
+    }
+
+    public override void Emit(TokenTextWriter stream, int level) {
+      stream.WriteLine(this, level, string.Format("before@{0};", Label));
+    }
+
+    public override void Resolve(ResolutionContext rc) {
+    }
+
+    public override void Typecheck(TypecheckingContext tc) {
+    }
+
+    public override Absy StdDispatch(StandardVisitor visitor) {
+      return visitor.VisitBeforeAtCmd(this);
+    }
+  }
+
 
   //---------------------------------------------------------------------
   // Transfer commands

@@ -1,4 +1,4 @@
-//-----------------------------------------------------------------------------
+﻿//-----------------------------------------------------------------------------
 //
 // Copyright (C) Microsoft Corporation.  All Rights Reserved.
 //
@@ -1318,7 +1318,7 @@ namespace VC {
 
     Dictionary<Variable, Expr> preHavocIncarnationMap = null;     // null = the previous command was not an HashCmd. Otherwise, a *copy* of the map before the havoc statement
 
-    protected void TurnIntoPassiveBlock(Block b, Dictionary<Variable, Expr> incarnationMap, ModelViewInfo mvInfo, Substitution oldFrameSubst, MutableVariableCollector variableCollector, byte[] currentChecksum = null) {
+    protected void TurnIntoPassiveBlock(Block b, Dictionary<Variable, Expr> incarnationMap, ModelViewInfo mvInfo, Substitution oldFrameSubst, MutableVariableCollector variableCollector, Dictionary<string, Substitution> beforeSubst, byte[] currentChecksum = null) {
       Contract.Requires(b != null);
       Contract.Requires(incarnationMap != null);
       Contract.Requires(mvInfo != null);
@@ -1331,7 +1331,7 @@ namespace VC {
         ChecksumHelper.ComputeChecksums(c, currentImplementation, variableCollector.UsedVariables, currentChecksum);
         variableCollector.Visit(c);
         currentChecksum = c.Checksum;
-        TurnIntoPassiveCmd(c, incarnationMap, oldFrameSubst, passiveCmds, mvInfo, b);
+        TurnIntoPassiveCmd(c, incarnationMap, oldFrameSubst, passiveCmds, mvInfo, b, beforeSubst);
       }
       b.Checksum = currentChecksum;
       b.Cmds = passiveCmds;
@@ -1428,6 +1428,7 @@ namespace VC {
       Block exitBlock = null;
       Dictionary<Variable, Expr> exitIncarnationMap = null;
       var variableCollectors = new Dictionary<Block, MutableVariableCollector>();
+      var beforeSubst = new Dictionary<string, Substitution>();
       foreach (Block b in sortedNodes) {
         Contract.Assert(b != null);
         Contract.Assert(!block2Incarnation.ContainsKey(b));
@@ -1449,8 +1450,6 @@ namespace VC {
             currentChecksum = ChecksumHelper.CombineChecksums(p.Checksum, currentChecksum, true);
           }
           mvc.AddUsedVariables(variableCollectors[p].UsedVariables);
-          if (p.succCount == 0)
-            block2Incarnation.Remove(p);
         }
 
         #region Each block's map needs to be available to successor blocks
@@ -1465,7 +1464,7 @@ namespace VC {
         }
         #endregion Each block's map needs to be available to successor blocks
 
-        TurnIntoPassiveBlock(b, incarnationMap, mvInfo, oldFrameSubst, mvc, currentChecksum);
+        TurnIntoPassiveBlock(b, incarnationMap, mvInfo, oldFrameSubst, mvc, beforeSubst, currentChecksum);
         exitBlock = b;
         exitIncarnationMap = incarnationMap;
       }
@@ -1530,7 +1529,7 @@ namespace VC {
     /// Turn a command into a passive command, and it remembers the previous step, to see if it is a havoc or not. In the case, it remembers the incarnation map BEFORE the havoc
     /// Meanwhile, record any information needed to later reconstruct a model view.
     /// </summary>
-    protected void TurnIntoPassiveCmd(Cmd c, Dictionary<Variable, Expr> incarnationMap, Substitution oldFrameSubst, List<Cmd> passiveCmds, ModelViewInfo mvInfo, Block containingBlock) {
+    protected void TurnIntoPassiveCmd(Cmd c, Dictionary<Variable, Expr> incarnationMap, Substitution oldFrameSubst, List<Cmd> passiveCmds, ModelViewInfo mvInfo, Block containingBlock, Dictionary<string, Substitution> beforeSubst) {
       Contract.Requires(c != null);
       Contract.Requires(incarnationMap != null);
       Contract.Requires(oldFrameSubst != null);
@@ -1547,6 +1546,7 @@ namespace VC {
         Contract.Assert(pc != null);
 
         QKeyValue current = pc.Attributes;
+        Substitution beforeSubstituter = null;
         while (current != null)
         {
           if (current.Key == "minimize" || current.Key == "maximize") {
@@ -1562,11 +1562,22 @@ namespace VC {
             Contract.Assume(param != null && param.Type.IsBool);
             current.ClearParams();
             current.AddParam(Substituter.ApplyReplacingOldExprs(incarnationSubst, oldFrameSubst, param));
+          } 
+          else if (current.Key == "before@") 
+          {
+            var map = new Dictionary<Variable, Expr>();
+            var referencedLabel = (string)current.Params[0];
+            if (referencedLabel == BeforeAtCmd.THIS_LABEL)
+              beforeSubstituter = incarnationSubst;
+            else
+              beforeSubstituter = beforeSubst[referencedLabel];
           }
           current = current.Next;
         }
 
         Expr copy = Substituter.ApplyReplacingOldExprs(incarnationSubst, oldFrameSubst, pc.Expr);
+        if (beforeSubstituter != null)
+          copy = Substituter.ApplyReplacingBeforeExprs(beforeSubstituter, pc.Expr);
         if (CommandLineOptions.Clo.ModelViewFile != null && pc is AssumeCmd) {
           string description = QKeyValue.FindStringAttribute(pc.Attributes, "captureState");
           if (description != null) {
@@ -1838,7 +1849,7 @@ namespace VC {
         Contract.Assert(sug != null);
         Cmd cmd = sug.Desugaring;
         Contract.Assert(cmd != null);
-        TurnIntoPassiveCmd(cmd, incarnationMap, oldFrameSubst, passiveCmds, mvInfo, containingBlock);
+        TurnIntoPassiveCmd(cmd, incarnationMap, oldFrameSubst, passiveCmds, mvInfo, containingBlock, beforeSubst);
       } else if (c is StateCmd) {
         this.preHavocIncarnationMap = null;       // we do not need to remeber the previous incarnations
         StateCmd st = (StateCmd)c;
@@ -1854,13 +1865,16 @@ namespace VC {
         // do the sub-commands
         foreach (Cmd s in st.Cmds) {
           Contract.Assert(s != null);
-          TurnIntoPassiveCmd(s, incarnationMap, oldFrameSubst, passiveCmds, mvInfo, containingBlock);
+          TurnIntoPassiveCmd(s, incarnationMap, oldFrameSubst, passiveCmds, mvInfo, containingBlock, beforeSubst);
         }
         // remove the local variables from the incarnation map
         foreach (Variable v in st.Locals) {
           Contract.Assert(v != null);
           incarnationMap.Remove(v);
         }
+      } else if (c is BeforeAtCmd) {
+        BeforeAtCmd incCmd = (BeforeAtCmd)c;
+        beforeSubst[incCmd.Label] = Substituter.SubstitutionFromHashtable(new Dictionary<Variable, Expr>(incarnationMap));
       }
       #region There shouldn't be any other types of commands at this point
  else {

@@ -431,6 +431,12 @@ namespace Microsoft.Boogie {
       node.Expr = this.VisitExpr(node.Expr);
       return node;
     }
+    public virtual Expr VisitBeforeExpr(BeforeExpr node) {
+      Contract.Requires(node != null);
+      Contract.Ensures(Contract.Result<Expr>() != null);
+      node.Expr = this.VisitExpr(node.Expr);
+      return node;
+    }
     public virtual Procedure VisitProcedure(Procedure node) {
       Contract.Requires(node != null);
       Contract.Ensures(Contract.Result<Procedure>() != null);
@@ -630,6 +636,11 @@ namespace Microsoft.Boogie {
       Contract.Ensures(Contract.Result<Cmd>() != null);
       node.Requires = this.VisitRequires(node.Requires);
       node.Expr = this.VisitExpr(node.Expr);
+      return node;
+    }
+    public virtual Cmd VisitBeforeAtCmd(BeforeAtCmd node) {
+      Contract.Requires(node != null);
+      Contract.Ensures(Contract.Result<Cmd>() != null);
       return node;
     }
   }
@@ -986,6 +997,11 @@ namespace Microsoft.Boogie {
       }
       public override Expr VisitOldExpr(OldExpr node)
       {
+          Contract.Ensures(Contract.Result<Expr>() == node);
+          this.VisitExpr(node.Expr);
+          return node;
+      }
+      public override Expr VisitBeforeExpr(BeforeExpr node) {
           Contract.Ensures(Contract.Result<Expr>() == node);
           this.VisitExpr(node.Expr);
           return node;
