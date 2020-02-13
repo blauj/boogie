@@ -580,7 +580,7 @@ namespace Microsoft.Boogie {
           collector.Visit(predicateCmd.Expr);
           liveSet.UnionWith(collector.usedVars);
         }
-      } else if (cmd is CommentCmd) {
+      } else if (cmd is CommentCmd || cmd is BeforeAtCmd) {
         // comments are just for debugging and don't affect verification
       } else if (cmd is SugaredCmd) {
         SugaredCmd/*!*/ sugCmd = (SugaredCmd)cce.NonNull(cmd);

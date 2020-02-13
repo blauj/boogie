@@ -569,25 +569,19 @@ namespace Microsoft.Boogie {
     }
 
     /// <summary>
-    /// Apply a substitution to an expression replacing "old" expressions.
-    /// Outside "old" expressions, the substitution "always" is applied; any variable not in
+    /// Apply a substitution to an expression replacing "old" and "before" expressions.
+    /// Outside "old"/"before" expressions, the substitution "always" is applied; any variable not in
     /// domain(always) is not changed.  Inside "old" expressions, apply map "forOld" to
     /// variables in domain(forOld), apply map "always" to variables in
     /// domain(always)-domain(forOld), and leave variable unchanged otherwise.
+    /// The same applies to "before" expressions and forBefore.
     /// </summary>    
-    public static Expr ApplyReplacingOldExprs(Substitution always, Substitution forOld, Expr expr) {
+    public static Expr ApplyReplacingOldExprs(Substitution always, Substitution forOld, Expr expr, Substitution forBefore = null) {
       Contract.Requires(always != null);
       Contract.Requires(forOld != null);
       Contract.Requires(expr != null);
       Contract.Ensures(Contract.Result<Expr>() != null);
-      return (Expr)new ReplacingOldSubstituter(always, forOld).Visit(expr);
-    }
-
-    public static Expr ApplyReplacingBeforeExprs(Substitution forBefore, Expr expr) {
-      Contract.Requires(forBefore != null);
-      Contract.Requires(expr != null);
-      Contract.Ensures(Contract.Result<Expr>() != null);
-      return (Expr)new ReplacingBeforeSubstituter(forBefore).Visit(expr);
+      return (Expr)new ReplacingOldAndBeforeSubstituter(always, forOld, forBefore).Visit(expr);
     }
 
     public static Expr FunctionCallReresolvingApplyReplacingOldExprs(Substitution always, Substitution forOld, Expr expr, Program program)
@@ -650,7 +644,7 @@ namespace Microsoft.Boogie {
       Contract.Requires(forOld != null);
       Contract.Requires(cmd != null);
       Contract.Ensures(Contract.Result<Cmd>() != null);
-      return (Cmd)new ReplacingOldSubstituter(always, forOld).Visit(cmd);
+      return (Cmd)new ReplacingOldAndBeforeSubstituter(always, forOld).Visit(cmd);
     }
 
     // ----------------------------- Substitutions for QKeyValue -------------------------------
@@ -679,7 +673,7 @@ namespace Microsoft.Boogie {
       if (kv == null) {
         return null;
       } else {
-        return (QKeyValue)new ReplacingOldSubstituter(always, forOld).Visit(kv);
+        return (QKeyValue)new ReplacingOldAndBeforeSubstituter(always, forOld).Visit(kv);
       }
     }
 
@@ -743,7 +737,7 @@ namespace Microsoft.Boogie {
       }
     }
 
-    private sealed class FunctionCallReresolvingReplacingOldSubstituter : ReplacingOldSubstituter
+    private sealed class FunctionCallReresolvingReplacingOldSubstituter : ReplacingOldAndBeforeSubstituter
     {
       readonly Program Program;
 
@@ -795,24 +789,27 @@ namespace Microsoft.Boogie {
       }
     }
 
-    private class ReplacingOldSubstituter : Duplicator {
-      private readonly Substitution/*!*/ always;
-      private readonly Substitution/*!*/ forold;
+    private class ReplacingOldAndBeforeSubstituter : Duplicator {
+      protected readonly Substitution/*!*/ always;
+      protected readonly Substitution/*!*/ forold;
+      protected readonly Substitution/*!*/ forbefore;
       [ContractInvariantMethod]
       void ObjectInvariant() {
         Contract.Invariant(always != null);
         Contract.Invariant(forold != null);
       }
 
-      public ReplacingOldSubstituter(Substitution always, Substitution forold)
+      public ReplacingOldAndBeforeSubstituter(Substitution always, Substitution forold, Substitution forbefore = null)
         : base() {
         Contract.Requires(forold != null);
         Contract.Requires(always != null);
         this.always = always;
         this.forold = forold;
+        this.forbefore = forbefore;
       }
 
       private bool insideOldExpr = false;
+      private bool insideBeforeExpr = false;
 
       public override Expr VisitIdentifierExpr(IdentifierExpr node) {
         //Contract.Requires(node != null);
@@ -821,6 +818,8 @@ namespace Microsoft.Boogie {
 
         if (insideOldExpr) {
           e = forold(cce.NonNull(node.Decl));
+        } else if (insideBeforeExpr && forbefore != null) {
+          e = forbefore(cce.NonNull(node.Decl));
         }
 
         if (e == null) {
@@ -839,33 +838,6 @@ namespace Microsoft.Boogie {
         insideOldExpr = previouslyInOld;
         return e;
       }
-    }
-    public class ReplacingBeforeSubstituter : Duplicator {
-      protected readonly Substitution/*!*/ forBefore;
-      [ContractInvariantMethod]
-      void ObjectInvariant() {
-        Contract.Invariant(forBefore != null);
-      }
-
-      public ReplacingBeforeSubstituter(Substitution forBefore)
-        : base() {
-        Contract.Requires(forBefore != null);
-        this.forBefore = forBefore;
-      }
-
-      private bool insideBeforeExpr = false;
-
-      public override Expr VisitIdentifierExpr(IdentifierExpr node) {
-        Contract.Ensures(Contract.Result<Expr>() != null);
-        Expr/*?*/ e = null;
-
-        if (forBefore != null && insideBeforeExpr) {
-          e = forBefore(cce.NonNull(node.Decl));
-        }
-
-        return e == null ? base.VisitIdentifierExpr(node) : e;
-      }
-
       public override Expr VisitBeforeExpr(BeforeExpr node) {
         Contract.Ensures(Contract.Result<Expr>() != null);
         bool previouslyInBefore = insideBeforeExpr;

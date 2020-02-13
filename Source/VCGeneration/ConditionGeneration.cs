@@ -1575,9 +1575,7 @@ namespace VC {
           current = current.Next;
         }
 
-        Expr copy = Substituter.ApplyReplacingOldExprs(incarnationSubst, oldFrameSubst, pc.Expr);
-        if (beforeSubstituter != null)
-          copy = Substituter.ApplyReplacingBeforeExprs(beforeSubstituter, pc.Expr);
+        Expr copy = Substituter.ApplyReplacingOldExprs(incarnationSubst, oldFrameSubst, pc.Expr, beforeSubstituter);
         if (CommandLineOptions.Clo.ModelViewFile != null && pc is AssumeCmd) {
           string description = QKeyValue.FindStringAttribute(pc.Attributes, "captureState");
           if (description != null) {
