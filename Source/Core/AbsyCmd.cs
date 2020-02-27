@@ -673,6 +673,13 @@ namespace Microsoft.Boogie {
             //assume all postconditions
             useCmds.AddRange(AssumePost(wcmd.Ensures, loopOldLabel));
 
+            //assume all free invariants
+            useCmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
+            //assume all preconditions
+            useCmds.AddRange(AssumePre(wcmd.Requires, loopOldLabel));
+            //assume all invs
+            useCmds.AddRange(AssumeInv(wcmd.Invariants, loopOldLabel));
+
             //assume !guard
             AssumeCmd notGuard = new AssumeCmd(wcmd.Guard.tok, Expr.Not(wcmd.Guard));
             notGuard.Attributes = new QKeyValue(wcmd.Guard.tok, "partition", new List<object>(), null);
@@ -760,7 +767,7 @@ namespace Microsoft.Boogie {
             step2Cmds.Add(new LoopHavocCmd(wcmd.tok));
 
             //assume !guard
-            step2Cmds.Add(new AssumeCmd(wcmd.Guard.tok, Expr.Not(wcmd.Guard)));
+            step2Cmds.Add(notGuard);
 
             //assume post(x_n/ before(x))
             step2Cmds.AddRange(AssumePost(wcmd.Ensures, loopStep2Label));
