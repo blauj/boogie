@@ -651,6 +651,7 @@ namespace Microsoft.Boogie {
             List<Cmd> oldCmds = new List<Cmd>();
 
             oldCmds.Add(new BeforeAtCmd(wcmd.tok, loopOldLabel));
+
             //assume all free invariants
             oldCmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
             //assert all preconditions
@@ -661,6 +662,13 @@ namespace Microsoft.Boogie {
             //TEMP HAVOC
             oldCmds.Add(new LoopHavocCmd(Token.NoToken));
 
+            //assume all free invariants
+            oldCmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
+            //assume all preconditions
+            oldCmds.AddRange(AssumePre(wcmd.Requires, loopOldLabel));
+            //assume all invs
+            oldCmds.AddRange(AssumeInv(wcmd.Invariants, loopOldLabel));
+
             Block oldBlock = new Block(wcmd.tok, loopOldLabel, oldCmds, new GotoCmd(wcmd.tok, new List<String> { loopUseLabel, loopBaseLabel, loopStep1Label }));
             oldBlock.needsAdditionalHavoc = true;
             blocks.Add(oldBlock);
@@ -670,20 +678,13 @@ namespace Microsoft.Boogie {
             //
             List<Cmd> useCmds = new List<Cmd>();
 
-            //assume all postconditions
-            useCmds.AddRange(AssumePost(wcmd.Ensures, loopOldLabel));
-
-            //assume all free invariants
-            useCmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
-            //assume all preconditions
-            useCmds.AddRange(AssumePre(wcmd.Requires, loopOldLabel));
-            //assume all invs
-            useCmds.AddRange(AssumeInv(wcmd.Invariants, loopOldLabel));
-
             //assume !guard
             AssumeCmd notGuard = new AssumeCmd(wcmd.Guard.tok, Expr.Not(wcmd.Guard));
             notGuard.Attributes = new QKeyValue(wcmd.Guard.tok, "partition", new List<object>(), null);
             useCmds.Add(notGuard);
+
+            //assume all postconditions
+            useCmds.AddRange(AssumePost(wcmd.Ensures, loopOldLabel));
 
             //return/block after loop
             TransferCmd trCmd;
@@ -700,13 +701,6 @@ namespace Microsoft.Boogie {
             //Base
             //
             List<Cmd> baseCmds = new List<Cmd>();
-
-            //assume all free invariants
-            baseCmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
-            //assume all preconditions
-            baseCmds.AddRange(AssumePre(wcmd.Requires, loopOldLabel));
-            //assume all invs
-            baseCmds.AddRange(AssumeInv(wcmd.Invariants, loopOldLabel));
 
             //assume !guard
             baseCmds.Add(notGuard);
@@ -730,13 +724,6 @@ namespace Microsoft.Boogie {
 
             //incarnations
             step1Cmds.Add(new BeforeAtCmd(wcmd.tok, loopStep1Label));
-
-            //assume all free invariants
-            step1Cmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
-            //assume all preconditions
-            step1Cmds.AddRange(AssumePre(wcmd.Requires, loopOldLabel));
-            //assume all invs
-            step1Cmds.AddRange(AssumeInv(wcmd.Invariants, loopOldLabel));
 
             //assume guard
             AssumeCmd guard = new AssumeCmd(wcmd.Guard.tok, wcmd.Guard);
