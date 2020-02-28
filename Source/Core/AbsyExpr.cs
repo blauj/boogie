@@ -1,4 +1,4 @@
-//-----------------------------------------------------------------------------
+﻿//-----------------------------------------------------------------------------
 //
 // Copyright (C) Microsoft Corporation.  All Rights Reserved.
 //
@@ -1160,9 +1160,12 @@ namespace Microsoft.Boogie {
       return visitor.VisitOldExpr(this);
     }
   }
+  /// <summary>
+  /// An expression that references the state of the variable at a certain point of execution.
+  /// The reference is marked by a <see cref="BeforeAtCmd"/>.
+  /// It is only replaced inside assert/assume statements that specifiy before@ as a QKey and the referenced label as a value.
+  /// </summary>
   public class BeforeExpr : Expr {
-    public string ReferencedLabel { get; set; }
-
     private Expr _Expr;
     public Expr/*!*/ Expr {
       get {
@@ -1240,7 +1243,6 @@ namespace Microsoft.Boogie {
     }
 
     public override Absy StdDispatch(StandardVisitor visitor) {
-      //Contract.Requires(visitor != null);
       Contract.Ensures(Contract.Result<Absy>() != null);
       return visitor.VisitBeforeExpr(this);
     }

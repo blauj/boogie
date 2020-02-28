@@ -2465,7 +2465,7 @@ namespace VC {
         }
 
         #region If this was a loop specified by contract, insert havocs at different locations
-        if (header.needsAdditionalHavoc)
+        if (header.NeedsAdditionalHavoc)
         {
           // havoc in loop step after body execution
           foreach (Block backEdgeNode in backEdgeNodes.Keys)
@@ -2494,6 +2494,11 @@ namespace VC {
       #endregion
       #endregion Convert program CFG into a DAG
     }
+    /// <summary>
+    /// Sets the variables of all <see cref="LoopHavocCmd"/> in the provided block.
+    /// </summary>
+    /// <param name="havocExprs">The identifiers of the variables that need to be havoced.</param>
+    /// <param name="backEdgeNode">The block where the replacement should occur.</param>
     private static void ReplaceHavocPlaceholder(List<IdentifierExpr> havocExprs, Block backEdgeNode) 
     {
       foreach (Cmd c in backEdgeNode.Cmds)

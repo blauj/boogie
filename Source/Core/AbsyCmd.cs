@@ -646,47 +646,49 @@ namespace Microsoft.Boogie {
             blocks.Add(gotoBlock);
 
             //
-            //Old:
+            // Old Case:
             //
             List<Cmd> oldCmds = new List<Cmd>();
 
+            // Incarnation reference marker for the before() predicate
             oldCmds.Add(new BeforeAtCmd(wcmd.tok, loopOldLabel));
 
-            //assume all free invariants
+            // Assume all free invariants
             oldCmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
-            //assert all preconditions
+            // Assert all preconditions
             oldCmds.AddRange(AssertPre(wcmd.Requires, loopOldLabel, LoopContractAssertCmd.LoopCase.Old));
-            //assert all invariants
+            // Assert all invariants
             oldCmds.AddRange(AssertInv(wcmd.Invariants, loopOldLabel, LoopContractAssertCmd.LoopCase.Old));
 
-            //TEMP HAVOC
+            // Temporary havoc marker, will be replaced in the DAG conversion
             oldCmds.Add(new LoopHavocCmd(Token.NoToken));
 
-            //assume all free invariants
+            // Assume all free invariants
             oldCmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
-            //assume all preconditions
+            // Assume all preconditions
             oldCmds.AddRange(AssumePre(wcmd.Requires, loopOldLabel));
-            //assume all invs
+            // Assume all invs
             oldCmds.AddRange(AssumeInv(wcmd.Invariants, loopOldLabel));
 
             Block oldBlock = new Block(wcmd.tok, loopOldLabel, oldCmds, new GotoCmd(wcmd.tok, new List<String> { loopUseLabel, loopBaseLabel, loopStep1Label }));
-            oldBlock.needsAdditionalHavoc = true;
+            // Mark block as the header of a loop specified by contract
+            oldBlock.NeedsAdditionalHavoc = true;
             blocks.Add(oldBlock);
 
             //
-            //Use:
+            // Use Case:
             //
             List<Cmd> useCmds = new List<Cmd>();
 
-            //assume !guard
+            // Assume !guard
             AssumeCmd notGuard = new AssumeCmd(wcmd.Guard.tok, Expr.Not(wcmd.Guard));
             notGuard.Attributes = new QKeyValue(wcmd.Guard.tok, "partition", new List<object>(), null);
             useCmds.Add(notGuard);
 
-            //assume all postconditions
+            // Assume all postconditions
             useCmds.AddRange(AssumePost(wcmd.Ensures, loopOldLabel));
 
-            //return/block after loop
+            // Return or goto the block after the loop
             TransferCmd trCmd;
             if (n == 0 && runOffTheEndLabel != null) {
               // goto the given label instead of the textual successor block
@@ -698,72 +700,69 @@ namespace Microsoft.Boogie {
             blocks.Add(useBlock);
 
             //
-            //Base
+            // Base Case:
             //
             List<Cmd> baseCmds = new List<Cmd>();
 
-            //assume !guard
+            // Assume !guard
             baseCmds.Add(notGuard);
 
-            //post[old(w)\f]
-            //before(x) -> x
+            // Assert post[before(x) \ x@this(=x)]
             baseCmds.AddRange(AssertPost(wcmd.Ensures, BeforeAtCmd.THIS_LABEL, LoopContractAssertCmd.LoopCase.Base));
 
-            //assume false
+            // Done => assume false
             baseCmds.Add(new AssumeCmd(Token.NoToken, Expr.False));
 
-            //return
             Block baseBlock = new Block(wcmd.tok, loopBaseLabel, baseCmds, new ReturnCmd(Token.NoToken));
             blocks.Add(baseBlock);
 
 
             //
-            //Step1
+            // Step Case:
             //
             List<Cmd> step1Cmds = new List<Cmd>();
 
-            //incarnations
+            // Incarnation reference marker for the before() predicate
             step1Cmds.Add(new BeforeAtCmd(wcmd.tok, loopStep1Label));
 
-            //assume guard
+            // Assume guard
             AssumeCmd guard = new AssumeCmd(wcmd.Guard.tok, wcmd.Guard);
             guard.Attributes = new QKeyValue(wcmd.Guard.tok, "partition", new List<object>(), null);
             step1Cmds.Add(guard);
 
-            //Step1 end
             Block step1Block = new Block(wcmd.tok, loopStep1Label, step1Cmds, new GotoCmd(wcmd.tok, new List<String> { wcmd.Body.BigBlocks[0].LabelName }));
             blocks.Add(step1Block);
-            //p1
+            
+            // Loop body recursion
             CreateBlocks(wcmd.Body, loopStep2Label);
 
             //
-            //Step2
+            // Step Case After Body:
             //
             List<Cmd> step2Cmds = new List<Cmd>();
 
-            //Force incarnations
+            // Incarnation reference marker for the before() predicate
             step2Cmds.Add(new BeforeAtCmd(wcmd.tok, loopStep2Label));
 
-            //assume all free invariants
+            // Assume all free invariants
             step2Cmds.AddRange(AssumeFreeInv(wcmd.Invariants, loopOldLabel));
-            //assert all preconditions
+            // Assert all preconditions
             step2Cmds.AddRange(AssertPre(wcmd.Requires, loopOldLabel, LoopContractAssertCmd.LoopCase.Step_Before));
-            //assert all invariants
+            // Assert all invariants
             step2Cmds.AddRange(AssertInv(wcmd.Invariants, loopOldLabel, LoopContractAssertCmd.LoopCase.Step_Before));
 
+            // Temporary havoc marker, will be replaced in the DAG conversion
             step2Cmds.Add(new LoopHavocCmd(wcmd.tok));
 
-            //assume !guard
+            // Assume !guard
             step2Cmds.Add(notGuard);
 
-            //assume post(x_n/ before(x))
+            // Assume post[before(x) \ x@LoopStep2(= after body]
             step2Cmds.AddRange(AssumePost(wcmd.Ensures, loopStep2Label));
 
-            //assert post(x_0, x)
+            // Assert post[before(x) \ x@LoopStep1(= before body)]
             step2Cmds.AddRange(AssertPost(wcmd.Ensures, loopStep1Label, LoopContractAssertCmd.LoopCase.Step_After));
 
-            //return
-            //Block step2Block = new Block(wcmd.tok, loopStep2Label, step2Cmds, new ReturnCmd(Token.NoToken), beforeReferencedBlock);
             Block step2HavocBlock = new Block(wcmd.tok, loopStep2Label, step2Cmds, new GotoCmd(wcmd.tok, new List<string>() { loopOldLabel }));
             blocks.Add(step2HavocBlock);
 
@@ -1191,7 +1190,10 @@ namespace Microsoft.Boogie {
 
     // VC generation and SCC computation
     public List<Block>/*!*/ Predecessors;
-    public bool needsAdditionalHavoc;
+    /// <summary>
+    /// Loop Contract marker for a block that contains an unresolved havoc
+    /// </summary>
+    public bool NeedsAdditionalHavoc;
 
     // This field is used during passification to null-out entries in block2Incartion hashtable early
     public int succCount;
@@ -3393,10 +3395,20 @@ namespace Microsoft.Boogie {
       return visitor.VisitAssertCmd(this);
     }
   }
-
-  // An AssertCmd that is a loop contract check.
+  /// <summary>
+  /// An AssertCmd that is a loop contract check.
+  /// Used to distinguish it from other asserts in the error generation.
+  /// </summary>
   public class LoopContractAssertCmd : AssertCmd {
+    /// <summary>
+    /// The case of the loop the assert is in.
+    /// Determines the error message (pre / postcondition not guaranteed on entry/during loop/after loop etc.)
+    /// </summary>
     public LoopCase Case;
+    /// <summary>
+    /// The type of the loop the assert (precondition, postcondition, invariant)
+    /// Determines the error message (pre / postcondition not guaranteed on entry/during loop/after loop etc.)
+    /// </summary>
     public LoopCondition Condition;
     public enum LoopCase {
       Old,
@@ -3658,7 +3670,14 @@ namespace Microsoft.Boogie {
   /// </summary>
   public class BeforeAtCmd : Cmd {
 
+    /// <summary>
+    /// If this is set as the label, before(x) is simply replaced with x.
+    /// </summary>
     public const string THIS_LABEL = "this";
+    
+    /// <summary>
+    /// The label referenced by assert/assume commands with the before@ as a QKey
+    /// </summary>
     public string Label { get; set; }
 
     public BeforeAtCmd(IToken tok, string label) : base(tok) {
