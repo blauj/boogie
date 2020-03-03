@@ -2473,6 +2473,13 @@ namespace VC {
           
           // havoc in header
           ReplaceHavocPlaceholder(havocExprs, header);
+
+          // insert resoning about loop postconditions in all blocks that irregulary leave the loop (break, return, goto)
+          // is needed to infer the method postcondition
+          IEnumerable<Block> leavingBlocks = BlocksLeavingLoop(g, header);
+          foreach(Block b in leavingBlocks) {
+            b.Cmds.AddRange(header.LoopHeaderPostconditions);
+          }
         }
         #endregion
         else
@@ -2508,7 +2515,30 @@ namespace VC {
           lhc.SetVariables(havocExprs);
       }
     }
-
+    /// <summary>
+    /// Identifies all blocks that leave the loop besides the header (e.g. break, return, goto)
+    /// </summary>
+    /// <param name="g">The loop graph</param>
+    /// <param name="header">The loop header block</param>
+    /// <returns></returns>
+    public static List<Block> BlocksLeavingLoop(Graph<Block> g, Block header) {
+      IEnumerable<Block> backedgeNodes = cce.NonNull(g.BackEdgeNodes(header));
+      List<Block> leavingBlocks = new List<Block>();
+      foreach (Block backEdgeNode in backedgeNodes) {
+        Contract.Assert(backEdgeNode != null);
+        IEnumerable<Block> natLoops = g.NaturalLoops(header, backEdgeNode);
+        foreach (Block loopBlock in natLoops) {
+          Contract.Assert(loopBlock != null);
+          // Of course the header leaves the loop, but we're only interested in the body
+          if (loopBlock == header)
+            continue;
+          // Get all successors of loop blocks that are not part of the loop => They are leaving the loop
+          IEnumerable<Block> lb = g.Successors(loopBlock).Except(natLoops);
+          leavingBlocks.AddRange(lb);
+        }
+      }
+      return leavingBlocks;
+    }
 
     public static List<Variable> VarsAssignedInLoop(Graph<Block> g, Block header)
     {

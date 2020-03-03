@@ -673,17 +673,16 @@ namespace Microsoft.Boogie {
             Block oldBlock = new Block(wcmd.tok, loopOldLabel, oldCmds, new GotoCmd(wcmd.tok, new List<String> { loopUseLabel, loopBaseLabel, loopStep1Label }));
             // Mark block as the header of a loop specified by contract
             oldBlock.NeedsAdditionalHavoc = true;
+            List<Cmd> loopHeaderAsserts = new List<Cmd>();
+            loopHeaderAsserts.AddRange(AssertPost(wcmd.Ensures, loopStep1Label, LoopContractAssertCmd.LoopCase.Step_After));
+            loopHeaderAsserts.AddRange(AssumePost(wcmd.Ensures, loopOldLabel));
+            oldBlock.LoopHeaderPostconditions = loopHeaderAsserts;
             blocks.Add(oldBlock);
 
             //
             // Use Case:
             //
             List<Cmd> useCmds = new List<Cmd>();
-
-            // Assume !guard
-            AssumeCmd notGuard = new AssumeCmd(wcmd.Guard.tok, Expr.Not(wcmd.Guard));
-            notGuard.Attributes = new QKeyValue(wcmd.Guard.tok, "partition", new List<object>(), null);
-            useCmds.Add(notGuard);
 
             // Assume all postconditions
             useCmds.AddRange(AssumePost(wcmd.Ensures, loopOldLabel));
@@ -705,6 +704,8 @@ namespace Microsoft.Boogie {
             List<Cmd> baseCmds = new List<Cmd>();
 
             // Assume !guard
+            AssumeCmd notGuard = new AssumeCmd(wcmd.Guard.tok, Expr.Not(wcmd.Guard));
+            notGuard.Attributes = new QKeyValue(wcmd.Guard.tok, "partition", new List<object>(), null);
             baseCmds.Add(notGuard);
 
             // Assert post[before(x) \ x@this(=x)]
@@ -753,9 +754,6 @@ namespace Microsoft.Boogie {
 
             // Temporary havoc marker, will be replaced in the DAG conversion
             step2Cmds.Add(new LoopHavocCmd(wcmd.tok));
-
-            // Assume !guard
-            step2Cmds.Add(notGuard);
 
             // Assume post[before(x) \ x@LoopStep2(= after body]
             step2Cmds.AddRange(AssumePost(wcmd.Ensures, loopStep2Label));
@@ -1190,10 +1188,17 @@ namespace Microsoft.Boogie {
 
     // VC generation and SCC computation
     public List<Block>/*!*/ Predecessors;
+
     /// <summary>
     /// Loop Contract marker for a block that contains an unresolved havoc
     /// </summary>
     public bool NeedsAdditionalHavoc;
+
+    /// <summary>
+    /// A list of all loop postconditions that need to be checked if the loop is left irregulary(break, return, goto)
+    /// Is only set if this block is a header of a loop specified by contract
+    /// </summary>
+    public List<Cmd> LoopHeaderPostconditions;
 
     // This field is used during passification to null-out entries in block2Incartion hashtable early
     public int succCount;
